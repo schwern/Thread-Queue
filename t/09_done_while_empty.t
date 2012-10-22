@@ -1,3 +1,6 @@
+# Test that threads will unblock if done() is called after the queue is
+# empty and threads are blocking.
+
 use strict;
 use warnings;
 
