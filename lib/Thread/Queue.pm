@@ -518,6 +518,66 @@ Defaults to true.
 
 =back
 
+=head1 EXAMPLE
+
+=head2 Incrementally feed a large amount of data to a queue
+
+Let's say you can't build the whole queue at once.  Maybe it's too
+much data to fit in memory.  Or maybe it just takes a long time to get
+it all.
+
+Here's an example with illustrating print statements how to slowly
+feed data to a queue while its being worked on using C<enqueue>,
+C<dequeue> and C<done>.
+
+    use strict;
+    use warnings;
+
+    use threads;
+    use Thread::Queue;
+
+    # This is our stand in for the slow data feed.  It will
+    # return a random number of items after a pause.
+    my @data = (1..50);
+    sub get_data {
+        sleep 1;
+        return splice @data, 0, int(rand(10)+1);
+    }
+
+    # A new empty queue
+    my $q = Thread::Queue->new();
+
+    # Make five worker threads.
+    # They will start and wait for work in the queue.
+    my @threads;
+    for my $thread (1..5) {
+        push @threads, threads->create(sub {
+            my $tid = threads->tid;
+            print "$tid: starting\n";
+            while (my $item = $q->dequeue()) {
+                print "$tid: got $item\n";
+            }
+            print "$tid: done\n";
+        });
+    }
+
+    # After the workers have started, slowly add work into the queue.
+    while( my @data = get_data() ) {
+        print "Adding more data to the queue.\n";
+        $q->enqueue(@data);
+    }
+
+    # No more data, declare the queue done.
+    $q->done;
+    print "Done\n";
+
+    for my $thread (@threads) {
+        my $tid = $thread->tid;
+        print "$tid: joining\n";
+        $thread->join;
+        print "$tid: joined\b";
+    }
+
 =head1 NOTES
 
 Queues created by L<Thread::Queue> can be used in both threaded and
