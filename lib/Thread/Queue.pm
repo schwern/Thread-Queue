@@ -49,14 +49,13 @@ sub pending
 sub done
 {
     my $self = shift;
-    my $queue = $self->{queue};
+    lock $self;
 
     # No more data is coming, don't block on an empty queue
     $self->should_block(0);
 
     # Release all blocked queues
-    lock $self;
-    cond_broadcast %$self;
+    cond_broadcast(%$self);
 
     return;
 }
@@ -86,10 +85,8 @@ sub dequeue
     my $count = @_ ? $validate_count->(shift) : 1;
 
     # Wait for requisite number of items
-    if( $self->should_block ) {
-        cond_wait(%$self) until (@$queue >= $count);
-        cond_signal(%$self) if (@$queue > $count);
-    }
+    cond_wait(%$self) while ($self->should_block && @$queue < $count);
+    cond_signal(%$self) if (@$queue > $count);
 
     return $self->_dequeue_nb($count);
 }

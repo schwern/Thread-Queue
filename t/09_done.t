@@ -17,7 +17,7 @@ use Test::More;
 
 my @items = 1..20;
 my $num_threads = 3;
-plan tests => @items + $num_threads;
+plan tests => @items + ($num_threads * 2);
 
 my $q = Thread::Queue->new();
 
@@ -33,12 +33,18 @@ for my $i (1..$num_threads) {
     });
 }
 
-# Send work to the thread
 $q->enqueue(@items);
 
-# Signal no more work is coming
+# Make sure there's nothing in the queue and threads are blocking.
+sleep 1 while $q->pending;
+sleep 1;
+
+# Signal no more work is coming to the blocked threads, they
+# should unblock.
 $q->done;
 note "Done sent";
 
-# Join up with the thread when it finishes
-$_->join() for @threads;
+for my $thread (@threads) {
+    $thread->join;
+    pass($thread->tid." joined");
+}
