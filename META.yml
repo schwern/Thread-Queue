@@ -1,0 +1,25 @@
+--- #YAML:1.0
+name:               Thread-Queue
+version:            2.12
+abstract:           Thread-safe queues
+author:
+    - Jerry D. Hedden <jdhedden AT cpan DOT org>
+license:            perl
+distribution_type:  module
+configure_requires:
+    ExtUtils::MakeMaker:  0
+build_requires:
+    ExtUtils::MakeMaker:  0
+requires:
+    Scalar::Util:       1.1
+    Test::More:         0.5
+    Thread::Semaphore:  0
+    threads::shared:    1.21
+no_index:
+    directory:
+        - t
+        - inc
+generated_by:       ExtUtils::MakeMaker version 6.5601
+meta-spec:
+    url:      http://module-build.sourceforge.net/META-spec-v1.4.html
+    version:  1.4

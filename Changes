@@ -1,0 +1,43 @@
+Revision history for Perl extension Thread::Queue.
+
+2.12 Fri Dec 24 17:52:51 2010
+	- Install in 'site' for Perl >= 5.011
+	- Test file changes for core
+	- Added new example (examples/callback.pl) to distribution
+	- POD update
+
+2.11 Thu Jun 12 13:41:45 2008
+	- End all tests with exit(0) and fix SKIPs
+
+2.09 Fri May 30 16:31:48 2008
+	- Check for 'undef' for counts and indices.
+
+2.08 Wed May 14 15:24:53 2008
+	- Use threads::shared::shared_clone() for complex data
+
+2.07 Wed May  7 18:48:46 2008
+	- Properly clone complex structures with circular references
+
+2.06 Fri Feb 22 22:08:38 2008
+	- Allow installation on non-threaded Perls
+
+2.05 Wed Feb 20 17:21:25 2008
+	- Build/test updates
+
+2.04 Mon Feb 18 12:31:30 2008
+	- Install under 'perl' dir
+
+2.03 Fri Feb 15 18:54:15 2008
+	- Support queuing refs of refs
+
+2.02 Fri Feb 15 15:18:11 2008
+	- Fix tests to work under Perl 5.8.0
+
+2.01 Thu Feb 14 18:11:00 2008
+	- Added 'count' option to dequeue and dequeue_nb
+	- Added peek, insert and extract methods
+	- Support queuing of complex data structures
+
+2.00 Jul 12 16:31:00 2002
+	- Released as part of Perl 5.8.0
+
