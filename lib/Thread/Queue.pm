@@ -20,37 +20,104 @@ sub new
 {
     my $class = shift;
     my @queue :shared = map { shared_clone($_) } @_;
-    return bless(\@queue, $class);
+    my %self :shared = ( queue => \@queue, should_block => 1 );
+    return bless(\%self, $class);
 }
 
 # Add items to the tail of a queue
 sub enqueue
 {
-    my $queue = shift;
-    lock(@$queue);
+    my $self = shift;
+    lock(%$self);
+
+    my $queue = $self->{queue};
     push(@$queue, map { shared_clone($_) } @_)
-        and cond_signal(@$queue);
+        and cond_signal(%$self);
 }
 
 # Return a count of the number of items on a queue
 sub pending
 {
-    my $queue = shift;
-    lock(@$queue);
+    my $self = shift;
+    lock(%$self);
+
+    my $queue = $self->{queue};
     return scalar(@$queue);
 }
+
+# Indicate that no more data will enter the queue
+sub done
+{
+    my $self = shift;
+    my $queue = $self->{queue};
+
+    # No more data is coming, don't block on an empty queue
+    $self->should_block(0);
+
+    # Release all blocked queues
+    lock $self;
+    cond_broadcast %$self;
+
+    return;
+}
+
+# Should dequeue block?
+sub should_block
+{
+    my $self = shift;
+
+    if( @_ ) {
+        $self->{should_block} = shift;
+        return;
+    }
+
+    return $self->{should_block};
+}
+
 
 # Return 1 or more items from the head of a queue, blocking if needed
 sub dequeue
 {
-    my $queue = shift;
-    lock(@$queue);
+    my $self = shift;
+    lock(%$self);
+
+    my $queue = $self->{queue};
 
     my $count = @_ ? $validate_count->(shift) : 1;
 
     # Wait for requisite number of items
-    cond_wait(@$queue) until (@$queue >= $count);
-    cond_signal(@$queue) if (@$queue > $count);
+    if( $self->should_block ) {
+        cond_wait(%$self) until (@$queue >= $count);
+        cond_signal(%$self) if (@$queue > $count);
+    }
+
+    return $self->_dequeue_nb($count);
+}
+
+# Return items from the head of a queue with no blocking
+sub dequeue_nb
+{
+    my $self = shift;
+    lock(%$self);
+
+    my $queue = $self->{queue};
+
+    my $count = @_ ? $validate_count->(shift) : 1;
+
+    # If there's not enough left in the queue, return what's left.
+    $count = @$queue if @$queue < $count;
+
+    return $self->_dequeue_nb($count);
+}
+
+# Do the dequeuing.  Assume proper input and that the queue is locked.
+sub _dequeue_nb {
+    my $self = shift;
+    my $queue = $self->{queue};
+
+    my $count = shift;
+
+    return if ($count == 0);
 
     # Return single item
     return shift(@$queue) if ($count == 1);
@@ -61,31 +128,14 @@ sub dequeue
     return @items;
 }
 
-# Return items from the head of a queue with no blocking
-sub dequeue_nb
-{
-    my $queue = shift;
-    lock(@$queue);
-
-    my $count = @_ ? $validate_count->(shift) : 1;
-
-    # Return single item
-    return shift(@$queue) if ($count == 1);
-
-    # Return multiple items
-    my @items;
-    for (1..$count) {
-        last if (! @$queue);
-        push(@items, shift(@$queue));
-    }
-    return @items;
-}
-
 # Return an item without removing it from a queue
 sub peek
 {
-    my $queue = shift;
-    lock(@$queue);
+    my $self = shift;
+    lock(%$self);
+
+    my $queue = $self->{queue};
+
     my $index = @_ ? $validate_index->(shift) : 0;
     return $$queue[$index];
 }
@@ -93,8 +143,10 @@ sub peek
 # Insert items anywhere into a queue
 sub insert
 {
-    my $queue = shift;
-    lock(@$queue);
+    my $self = shift;
+    lock(%$self);
+
+    my $queue = $self->{queue};
 
     my $index = $validate_index->(shift);
 
@@ -121,14 +173,16 @@ sub insert
     push(@$queue, @tmp);
 
     # Soup's up
-    cond_signal(@$queue);
+    cond_signal(%$self);
 }
 
 # Remove items from anywhere in a queue
 sub extract
 {
-    my $queue = shift;
-    lock(@$queue);
+    my $self = shift;
+    lock(%$self);
+
+    my $queue = $self->{queue};
 
     my $index = @_ ? $validate_index->(shift) : 0;
     my $count = @_ ? $validate_count->(shift) : 1;
@@ -139,7 +193,7 @@ sub extract
         if ($index < 0) {
             $count += $index;
             return if ($count <= 0);            # Beyond the head of the queue
-            return $queue->dequeue_nb($count);  # Extract from the head
+            return $self->dequeue_nb($count);  # Extract from the head
         }
     }
 
@@ -224,14 +278,16 @@ This document describes Thread::Queue version 2.12
 
     # Worker thread
     my $thr = threads->create(sub {
-                                while (my $item = $q->dequeue()) {
-                                    # Do work on $item
-                                }
-                             })->detach();
+        while (my $item = $q->dequeue()) {
+            # Do work on $item
+        }
+    })->detach();
 
     # Send work to the thread
     $q->enqueue($item1, ...);
 
+    # Done adding things to the queue, unblock any threads
+    $q->done;
 
     # Count of items in the queue
     my $left = $q->pending();
@@ -328,9 +384,13 @@ Adds a list of items onto the end of the queue.
 =item ->dequeue(COUNT)
 
 Removes the requested number of items (default is 1) from the head of the
-queue, and returns them.  If the queue contains fewer than the requested
-number of items, then the thread will be blocked until the requisite number
-of items are available (i.e., until other threads <enqueue> more items).
+queue, and returns them.
+
+If the queue contains fewer than the requested number of items, then
+the thread will be blocked until the requisite number of items are
+available (i.e., until other threads <enqueue> more items) unless C<<
+$queue->should_block >> is false as after C<< $queue->done >> is
+called.
 
 =item ->dequeue_nb()
 
@@ -345,6 +405,14 @@ returned.
 =item ->pending()
 
 Returns the number of items still in the queue.
+
+=item ->done()
+
+Declares that no more items will be added to the queue.
+
+All queues blocked waiting for items will unblock.  All further
+dequeues and similar methods will no longer block waiting for more
+items.
 
 =back
 
@@ -441,6 +509,15 @@ greater than zero):
     my @some = $q->extract(-6, 4);   # Returns (foo)      - (3+(-6)+4) > 0
                                      # Queue now contains:  bar, baz
     my @rest = $q->extract(-3, 4);   # Returns (bar, baz) - (2+(-3)+4) > 0
+
+=item ->should_block
+
+=item ->should_block(BOOLEAN)
+
+Get/set whether dequeue() and other blocking methods should block
+while waiting for more items.
+
+Defaults to true.
 
 =back
 
